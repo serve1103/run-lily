@@ -9,65 +9,67 @@ public class ChunkSpawner : MonoBehaviour
     public ChunkData[] hardChunks;
 
     [Header("Spawn Settings")]
-    public float spawnAheadDistance = 20f; // 화면 오른쪽 얼마나 앞에 생성할지
-    public float minChunkGap = 3f;        // 청크 간 최소 간격
+    public float spawnX = 15f;           // 화면 오른쪽 밖에서 생성
+    public float minChunkGap = 3f;       // 청크 간 최소 간격 (거리 기준)
 
-    float nextSpawnX;
-    List<ChunkData> recentChunks = new List<ChunkData>(); // 최근 2개 추적
+    float distanceSinceLastSpawn;
+    float nextSpawnAfter;
+    List<ChunkData> recentChunks = new List<ChunkData>();
 
     void Start()
     {
-        nextSpawnX = spawnAheadDistance;
+        // 첫 청크는 바로 생성
+        nextSpawnAfter = 0f;
+        distanceSinceLastSpawn = 0f;
     }
 
     void Update()
     {
         if (GameManager.Instance.State != GameManager.GameState.Playing) return;
 
-        // 다음 청크 생성 위치에 도달하면 스폰
-        float cameraRightEdge = Camera.main.transform.position.x + spawnAheadDistance;
-        if (nextSpawnX < cameraRightEdge)
+        distanceSinceLastSpawn += GameManager.Instance.CurrentSpeed * Time.deltaTime;
+
+        if (distanceSinceLastSpawn >= nextSpawnAfter)
         {
             SpawnChunk();
+            distanceSinceLastSpawn = 0f;
+            nextSpawnAfter = minChunkGap + Random.Range(0f, 2f);
         }
     }
 
     void SpawnChunk()
     {
         ChunkData chunk = SelectChunk();
-        if (chunk == null) return;
+        if (chunk == null)
+        {
+            Debug.LogWarning("청크 데이터가 없습니다! Inspector에서 청크를 할당해주세요.");
+            return;
+        }
 
-        // 청크 내 오브젝트들 스폰
         foreach (ChunkData.SpawnEntry entry in chunk.entries)
         {
             Vector3 pos = new Vector3(
-                nextSpawnX + entry.offset.x,
+                spawnX + entry.offset.x,
                 entry.offset.y,
                 0f
             );
             ObjectPool.Instance.Get(entry.poolTag, pos);
         }
 
-        // 최근 청크 기록 (연속 등장 방지)
         recentChunks.Add(chunk);
         if (recentChunks.Count > 2)
             recentChunks.RemoveAt(0);
-
-        // 다음 스폰 위치
-        nextSpawnX += minChunkGap + Random.Range(0f, 2f);
     }
 
     ChunkData SelectChunk()
     {
-        // 진행도에 따른 난이도 비율
         float progress = GameManager.Instance.Distance;
-        float maxDistance = 500f; // 스테이지 1 기준
+        float maxDistance = 500f;
         float ratio = Mathf.Clamp01(progress / maxDistance);
 
         ChunkData[] pool = PickDifficultyPool(ratio);
         if (pool == null || pool.Length == 0) return null;
 
-        // 최근 청크와 겹치지 않게 선택 (최대 10회 시도)
         for (int i = 0; i < 10; i++)
         {
             ChunkData candidate = pool[Random.Range(0, pool.Length)];
@@ -80,7 +82,6 @@ public class ChunkSpawner : MonoBehaviour
 
     ChunkData[] PickDifficultyPool(float ratio)
     {
-        // 기획서 기준: 0~30% → 쉬움70/보통30, 30~70% → 보통50/어려움20, 70~100% → 어려움50
         float roll = Random.value;
 
         if (ratio < 0.3f)
